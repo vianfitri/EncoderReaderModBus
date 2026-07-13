@@ -71,3 +71,44 @@ void gpio_setup(void) {
     gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0);
     gpio_set(GPIOB, GPIO0); // Pull-Up active
 }
+
+// External Interrupt Setup for HOME Switch
+void exti_setup(void){
+    exti_select_source(EXTI0, GPIOB); // Map EXTI0 to Port B
+
+    exti_set_trigger(EXTI0, EXTI_TRIGGER_FALLING); // Set trigger pada Falling Edge (Transisi dari High ke Low saat Sensor NPN aktif)
+
+    exti_enable_request(EXTI0); // Aktifkan interupsi pada lini EXTI0
+
+    // Aktifkan di NVIC (Core CPU) dan set prioritas
+    nvic_enable_irq(NVIC_EXTI0_IRQ);
+    nvic_set_priority(NVIC_EXTI0_IRQ, 1); // prioritas tinggi untuk akurasi posisi
+}
+
+// Interrupt Service Routine (ISR) for EXTI0
+void exti0_isr(void) {
+    // Validate interrupt only from EXTI0
+    if (exti_get_flag_status(EXTI0)) {
+
+        // Cek arah putaran dari register TIM5 CR1 DIR bit (0 = Upcount/Maju, 1 = Downcount/Mundur)
+        if ((TIM_CR1(TIM5) & TIM_CR1_DIR_DOWN) == 0) {
+            live_data.total_laps++;
+        } else {
+            live_data.total_laps--;
+        }
+
+        // Reset Pulse Count dan Hardware Timer ke posisi nol (Homing)
+        live_data.pulse_count = 0;
+        timer_set_counter(TIM5, 0);
+
+        // Tandai status homing sudah sukses
+        live_data.homing_status = 1;
+
+        // Clear flag interrupsi agar tidak looping berkelanjutan
+        exti_reset_request(EXTI0);
+    }
+}
+
+void encoder_setup(void){
+    timer_set_counter(TIM5, 0);
+}
