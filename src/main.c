@@ -60,9 +60,11 @@ void gpio_setup(void) {
     // RS-485 RX (PA10) Floating Input
     gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO_USART1_RX);
 
-    // RS-485 DE/RE Direction Pin (PA8)
+    // RS-485 DE/RE Direction Pin (PA8) mirror to Pin (PB15)
     gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO8);
+    gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO15);
     gpio_clear(GPIOA, GPIO8); // Default RX Mode for DE/RE
+    gpio_clear(GPIOB, GPIO15);
 
     // Encoder Pins (PA0 dan PA1) input pull-up
     gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0 | GPIO1);
