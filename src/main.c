@@ -20,6 +20,7 @@ typedef struct {
     uint16_t slave_id;
     uint16_t baudrate_code;
     float wheel_diameter;
+    uint16_t encoder_ppr;
     uint16_t checksum;    
 } DeviceConfig;
 
@@ -142,7 +143,7 @@ void load_config(void) {
     DeviceConfig *flash_data = (DeviceConfig *)FLASH_CONFIG_ADDR;
 
     // Validasi sederhana dengan Checksum
-    uint16_t calc_chk = flash_data->slave_id + flash_data->baudrate_code + (uint16_t)flash_data->wheel_diameter;
+    uint16_t calc_chk = flash_data->slave_id + flash_data->baudrate_code + (uint16_t)flash_data->wheel_diameter + flash_data->encoder_ppr;
     if (flash_data->checksum == calc_chk && flash_data->slave_id != 0xFFFF) {
         memcpy(&current_config, flash_data, sizeof(DeviceConfig));
     } else {
@@ -150,11 +151,12 @@ void load_config(void) {
         current_config.slave_id = 1;
         current_config.baudrate_code = 0; // 9600
         current_config.wheel_diameter = 200.0f; // 200mm
+        current_config.encoder_ppr = 600;
     }
 }
 
 void save_config_to_flash(void) {
-    current_config.checksum = current_config.slave_id + current_config.baudrate_code + (uint16_t)current_config.wheel_diameter;
+    current_config.checksum = current_config.slave_id + current_config.baudrate_code + (uint16_t)current_config.wheel_diameter + current_config.encoder_ppr;
 
     flash_unlock();
     flash_erase_page(FLASH_CONFIG_ADDR);
@@ -234,6 +236,7 @@ void process_modbus(void) {
             // BARU: Tambahan baca register status homing & Laps
             else if (current_reg == 9) reg_val = live_data.homing_status;
             else if (current_reg == 10) reg_val = (uint16_t)live_data.total_laps;
+            else if (current_reg == 11) reg_val = current_config.encoder_ppr;
             
             modbus_tx_buf[tx_idx++] = (reg_val >> 8) & 0xFF;
             modbus_tx_buf[tx_idx++] = reg_val & 0xFF;
@@ -269,6 +272,7 @@ void process_modbus(void) {
                 uint32_t temp = (*((uint32_t*)&current_config.wheel_diameter) & 0xFFFF0000) | reg_val;
                 current_config.wheel_diameter = *((float*)&temp);
             }
+            else if (current_reg == 11) current_config.encoder_ppr = reg_val;
             else if (current_reg == 8 && reg_val == 0xAAAA) {
                 save_config_to_flash(); // Simpan saat menerima command 0xAAAA
             }
@@ -310,7 +314,13 @@ int main(void) {
         last_timer_val = timer_val;
 
         // 2. Kalkulasi Jarak (mm) berdasarkan formula keliling roda
-        live_data.distance = ((float)live_data.pulse_count / TOTAL_PPR) * PI * current_config.wheel_diameter;
+        uint32_t dynamic_total_ppr = current_config.encoder_ppr * 4;
+
+        if (dynamic_total_ppr > 0) {
+            live_data.distance = ((float)live_data.pulse_count / dynamic_total_ppr) * PI * current_config.wheel_diameter;
+        } else {
+            live_data.distance = 0.0f;
+        }
 
         // 3. Polling Data Serial Modbus (Non-blocking)
         if ((USART_SR(USART1) &USART_SR_RXNE)) {
