@@ -36,12 +36,12 @@ typedef struct {
 
 LiveData live_data;
 
-/*
+
 // Modbus Buffer
 uint8_t modbus_rx_buf[64];
 uint8_t modbus_tx_buf[64];
-volatile uint8_t modbus_rx_idx = 0;
-*/
+uint8_t modbus_rx_idx = 0;
+
 
 // --------------------------------------
 // UJI STREAMING MELALUI UART
