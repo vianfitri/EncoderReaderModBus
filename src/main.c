@@ -30,8 +30,6 @@ DeviceConfig current_config;
 typedef struct {
     int32_t pulse_count;
     float distance;
-    uint16_t homing_status; // 0 = belum, 1 = siap/sudah zero
-    int16_t total_laps; // jumlah putaran penuh dari Channel Z
 } LiveData;
 
 LiveData live_data;
@@ -119,18 +117,15 @@ void exti0_isr(void) {
     if (exti_get_flag_status(EXTI0)) {
 
         // Cek arah putaran dari register TIM5 CR1 DIR bit (0 = Upcount/Maju, 1 = Downcount/Mundur)
-        if ((TIM_CR1(TIM5) & TIM_CR1_DIR_DOWN) == 0) {
-            live_data.total_laps++;
-        } else {
-            live_data.total_laps--;
-        }
+        //if ((TIM_CR1(TIM5) & TIM_CR1_DIR_DOWN) == 0) {
+        //    live_data.total_laps++;
+        //} else {
+        //    live_data.total_laps--;
+        //}
 
         // Reset Pulse Count dan Hardware Timer ke posisi nol (Homing)
         live_data.pulse_count = 0;
         timer_set_counter(TIM5, 0);
-
-        // Tandai status homing sudah sukses
-        live_data.homing_status = 1;
 
         // Clear flag interrupsi agar tidak looping berkelanjutan
         exti_reset_request(EXTI0);
@@ -182,11 +177,9 @@ void stream_encoder_data(void) {
     // Format data menjadi string: "PULSE,JARAK,HOMING,LAPS\r\n"
     sprintf(
         tx_buffer,
-        "%ld,%.2f,%d,%d\r\n",
+        "%ld,%.2f\r\n",
         live_data.pulse_count,
-        live_data.distance,
-        live_data.homing_status,
-        live_data.total_laps
+        live_data.distance
     );
 
     usart_send_string(tx_buffer);
@@ -287,10 +280,7 @@ void process_modbus(void) {
             else if (current_reg == 5) reg_val = (*((uint32_t*)&current_config.wheel_diameter)) & 0xFFFF;
             else if (current_reg == 6) reg_val = ((*((uint32_t*)&live_data.distance)) >> 16) & 0xFFFF;
             else if (current_reg == 7) reg_val = (*((uint32_t*)&live_data.distance)) & 0xFFFF;
-            // BARU: Tambahan baca register status homing & Laps
-            else if (current_reg == 9) reg_val = live_data.homing_status;
-            else if (current_reg == 10) reg_val = (uint16_t)live_data.total_laps;
-            else if (current_reg == 11) reg_val = current_config.encoder_ppr;
+            else if (current_reg == 9) reg_val = current_config.encoder_ppr;
             
             modbus_tx_buf[tx_idx++] = (reg_val >> 8) & 0xFF;
             modbus_tx_buf[tx_idx++] = reg_val & 0xFF;
@@ -326,7 +316,7 @@ void process_modbus(void) {
                 uint32_t temp = (*((uint32_t*)&current_config.wheel_diameter) & 0xFFFF0000) | reg_val;
                 current_config.wheel_diameter = *((float*)&temp);
             }
-            else if (current_reg == 11) current_config.encoder_ppr = reg_val;
+            else if (current_reg == 9) current_config.encoder_ppr = reg_val;
             else if (current_reg == 8 && reg_val == 0xAAAA) {
                 save_config_to_flash(); // Simpan saat menerima command 0xAAAA
             }
@@ -362,8 +352,6 @@ int main(void) {
     encoder_setup();
 
     int32_t last_timer_val = 0;
-    live_data.homing_status = 0; // Default belum melewati titik nol
-    live_data.total_laps = 0;
 
     // penampung waktu stream
     uint32_t last_stream_time = 0;
