@@ -39,7 +39,14 @@ LiveData live_data;
 // Modbus Buffer
 uint8_t modbus_rx_buf[64];
 uint8_t modbus_tx_buf[64];
-uint8_t modbus_rx_idx = 0;
+volatile uint8_t modbus_rx_idx = 0;
+//volatile uint32_t modbus_timeout_ticker = 0;
+//
+//static void delay_us(uint32_t us) {
+//    for (volatile uint32_t i = 0; i < us * 6; i++) {
+//        __asm__("nop");
+//    }
+//}
 
 void clock_setup(void) {
     // API clock 72 MHz
