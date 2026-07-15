@@ -9,8 +9,6 @@
 #include <math.h>
 
 #define PI 3.14159265358979323846f
-#define ENCODER_PPR 1024
-#define TOTAL_PPR (ENCODER_PPR * 4)
 
 // Alamat Flash Emulasi EEPROM (Page 127 - 1KB terakhir)
 #define FLASH_CONFIG_ADDR 0x0801FC00
