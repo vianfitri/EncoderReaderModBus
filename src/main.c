@@ -4,9 +4,11 @@
 #include <libopencm3/stm32/timer.h>
 #include <libopencm3/stm32/flash.h>
 #include <libopencm3/cm3/nvic.h>
+#include <libopencm3/cm3/systick.h>
 #include <libopencm3/stm32/exti.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h> // untuk sprintf ke UARTS
 
 #define PI 3.14159265358979323846f
 
@@ -34,10 +36,33 @@ typedef struct {
 
 LiveData live_data;
 
+/*
 // Modbus Buffer
 uint8_t modbus_rx_buf[64];
 uint8_t modbus_tx_buf[64];
 volatile uint8_t modbus_rx_idx = 0;
+*/
+
+// --------------------------------------
+// UJI STREAMING MELALUI UART
+// --------------------------------------
+
+// variable untuk melacak waktu SysTick
+volatile uint32_t system_millis = 0;
+
+// SysTick Interrupt Handler (dipanggil setiap 1 ms)
+void sys_tick_handler(void) {
+    system_millis++;
+}
+
+// Inisialisasi SysTick untuk interrupt 1ms pada 72 MHz
+void systick_setup(void) {
+    systick_set_frequency(1000, 72000000); // 1000Hz (1ms) pada clock 72MHz
+    systick_interrupt_enable();
+    systick_counter_enable();
+}
+
+// --------------------------------------
 
 void clock_setup(void) {
     // API clock 72 MHz
@@ -61,8 +86,10 @@ void gpio_setup(void) {
     // RS-485 DE/RE Direction Pin (PA8) mirror to Pin (PB15)
     gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO8);
     gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO15);
-    gpio_clear(GPIOA, GPIO8); // Default RX Mode for DE/RE
-    gpio_clear(GPIOB, GPIO15);
+    //gpio_clear(GPIOA, GPIO8); // Default RX Mode for DE/RE
+    //gpio_clear(GPIOB, GPIO15);
+    gpio_set(GPIOA, GPIO8);
+    gpio_set(GPIOB, GPIO15);
 
     // Encoder Pins (PA0 dan PA1) input pull-up
     gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0 | GPIO1);
@@ -132,10 +159,37 @@ void usart_setup(uint32_t baudrate) {
     usart_set_baudrate(USART1, baudrate);
     usart_set_databits(USART1, 8);
     usart_set_stopbits(USART1, USART_STOPBITS_1);
-    usart_set_mode(USART1, USART_MODE_TX_RX);
+
+    //usart_set_mode(USART1, USART_MODE_TX_RX);
+    usart_set_mode(USART1, USART_MODE_TX);
+
     usart_set_parity(USART1, USART_PARITY_NONE);
     usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
     usart_enable(USART1);
+}
+
+// Fungsi kirim string teks lewat USART
+void usart_send_string(const char *str) {
+    while (*str) {
+        usart_send_blocking(USART1, *str++);
+    }
+}
+
+// Fungsi untuk kirim data encoder dalam format Teks CSV
+void stream_encoder_data(void) {
+    char tx_buffer[100];
+
+    // Format data menjadi string: "PULSE,JARAK,HOMING,LAPS\r\n"
+    sprintf(
+        tx_buffer,
+        "%ld,%.2f,%d,%d\r\n",
+        live_data.pulse_count,
+        live_data.distance,
+        live_data.homing_status,
+        live_data.total_laps
+    );
+
+    usart_send_string(tx_buffer);
 }
 
 // --- Fungsi Flash / EEPROM Emulation ---
@@ -151,7 +205,7 @@ void load_config(void) {
         current_config.slave_id = 1;
         current_config.baudrate_code = 0; // 9600
         current_config.wheel_diameter = 200.0f; // 200mm
-        current_config.encoder_ppr = 600;
+        current_config.encoder_ppr = 20;
     }
 }
 
@@ -293,6 +347,10 @@ int main(void) {
     clock_setup();
     gpio_setup();
     exti_setup();
+
+    // aktifkan penjelajah waktu 1 ms
+    systick_setup();
+
     load_config();
 
     // Tentukan baudrate berdasarkan data konfigurasi
@@ -306,6 +364,9 @@ int main(void) {
     int32_t last_timer_val = 0;
     live_data.homing_status = 0; // Default belum melewati titik nol
     live_data.total_laps = 0;
+
+    // penampung waktu stream
+    uint32_t last_stream_time = 0;
 
     while(1) {
         // 1. Baca Raw Encoder dari hardware timer (16-bit handling untuk akumulasi int32) 
@@ -322,6 +383,7 @@ int main(void) {
             live_data.distance = 0.0f;
         }
 
+        /*
         // 3. Polling Data Serial Modbus (Non-blocking)
         if ((USART_SR(USART1) &USART_SR_RXNE)) {
             modbus_rx_buf[modbus_rx_idx++] = usart_recv(USART1);
@@ -333,6 +395,13 @@ int main(void) {
         for (volatile int i = 0; i < 2000; i++);
         if (modbus_rx_idx > 0) {
             process_modbus();
+        }
+        */
+
+        // 3. Cek apakah sudah berlalu 100ms secara non-blocking
+        if ((system_millis - last_stream_time) >= 100) {
+            last_stream_time = system_millis;
+            stream_encoder_data(); // Kirim data ke USART
         }
     }
 }
